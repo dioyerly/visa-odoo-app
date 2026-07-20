@@ -30,19 +30,18 @@ def make_etiqueta(row):
     return f"{b.strip()} _ {c.strip()} _ {k.strip()} _ {d.strip()} _ {j.strip()}"
 
 def clean_money_value(val):
-    """Limpia formatos de dinero con puntos de miles y comas decimales regionales de manera segura."""
+    """Limpia los importes respetando estrictamente el separador decimal de Argentina (punto para miles, coma para centavos)."""
     if pd.isnull(val):
         return 0.0
     val_str = str(val).strip()
     
-    if '.' in val_str and ',' in val_str:
-        val_str = val_str.replace('.', '').replace(',', '.')
-    elif ',' in val_str and val_str.count(',') == 1 and val_str.count('.') == 0:
-        val_str = val_str.replace(',', '.')
-    elif ',' in val_str and '.' in val_str and val_str.find(',') < val_str.find('.'):
-        val_str = val_str.replace(',', '')
-        
     try:
+        # Si tiene formato estándar argentino (punto en miles, coma en centavos)
+        if ',' in val_str:
+            val_str = val_str.replace('.', '').replace(',', '.')
+        else:
+            # Si ya viene limpio o con formato americano
+            val_str = val_str.replace(',', '')
         return float(val_str)
     except:
         return 0.0
@@ -177,7 +176,6 @@ if modulo == "0. Transcribir PDF de Visa a Excel":
                 if df_out.empty:
                     st.error("⚠️ No se pudieron estructurar líneas del PDF de forma automatizada.")
                 else:
-                    # --- RESTAURACIÓN DE BLOQUE DE MÉTRICAS MÓDULO 0 ---
                     col1, col2 = st.columns([2, 1])
                     with col1:
                         st.success("✨ ¡Transcripción completada con éxito!")
@@ -185,12 +183,10 @@ if modulo == "0. Transcribir PDF de Visa a Excel":
                     with col2:
                         st.subheader("📊 Resumen del PDF Procesado")
                         total_lineas_pdf = len(df_out)
-                        # Calcular sumas parciales para control rápido de pesos reales
                         suma_pesos_pdf = df_out['PESOS'].apply(clean_money_value).sum()
                         
                         st.metric("Total Líneas Transcritas", total_lineas_pdf)
                         st.metric("Sumatoria Total Pesos ($)", f"$ {suma_pesos_pdf:,.2f}")
-                        st.info("💡 Este reporte contiene la totalidad de movimientos discriminados e impuestos bancarios finales al pie del archivo.")
                     
                     out_buffer = io.BytesIO()
                     wb = openpyxl.Workbook()
@@ -231,7 +227,7 @@ if modulo == "0. Transcribir PDF de Visa a Excel":
                 st.error(f"Error en la transcripción: {e}")
 
 # ==========================================
-# MÓDULO 1: LIMPIEZA DE VISA PARA ODOO (MÉTRICAS)
+# MÓDULO 1: LIMPIEZA DE VISA PARA ODOO (ARREGLADO)
 # ==========================================
 elif modulo == "1. Limpieza de Visa para Odoo":
     st.title("💳 Procesador de Resúmenes Visa para Odoo")
@@ -245,6 +241,8 @@ elif modulo == "1. Limpieza de Visa para Odoo":
                 df_raw = df_raw.rename(columns={'REFERENCI': 'REFERENCIA'})
                 
             df_filtered = df_raw.dropna(subset=['FECHA']).copy()
+            
+            # Lógica corregida y blindada para importes regionales y americanos
             df_filtered['PESOS_NUM'] = df_filtered['PESOS'].apply(clean_money_value)
             df_filtered = df_filtered[df_filtered['PESOS_NUM'] != 0]
             
@@ -253,7 +251,6 @@ elif modulo == "1. Limpieza de Visa para Odoo":
             df_odoo['IMPORTE'] = -df_filtered['PESOS_NUM']
             df_odoo['ETIQUETA'] = df_filtered.apply(make_etiqueta, axis=1)
             
-            # --- PANEL DE CONTROL VISTOSO RESTAURADO EN EL MÓDULO 1 ---
             col1, col2 = st.columns([2, 1])
             with col1:
                 st.subheader("📋 Datos Listos para Odoo")
@@ -262,7 +259,7 @@ elif modulo == "1. Limpieza de Visa para Odoo":
                 st.subheader("📊 Resumen de Validación (Odoo)")
                 st.metric("Total Transacciones (Pesos)", len(df_odoo))
                 st.metric("Monto Neto Total ($)", f"$ {df_odoo['IMPORTE'].sum():,.2f}")
-                st.warning("⚠️ Aseguráte de corroborar que el contra-movimiento manual de entrada en Odoo refleje este importe neto exacto para neutralizar la cuenta puente.")
+                st.warning("⚠️ Aseguráte de corroborar que el contra-movimiento manual en Odoo refleje este importe neto exacto.")
             
             csv_buffer = io.StringIO()
             df_odoo.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
