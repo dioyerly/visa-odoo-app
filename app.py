@@ -30,18 +30,43 @@ def make_etiqueta(row):
     return f"{b.strip()} _ {c.strip()} _ {k.strip()} _ {d.strip()} _ {j.strip()}"
 
 def clean_money_value(val):
-    """Limpia los importes respetando estrictamente el separador decimal de Argentina (punto para miles, coma para centavos)."""
+    """
+    Limpiador contable universal inteligente.
+    Distingue automáticamente entre formato americano (123,456.78) y regional (123.456,78)
+    evaluando la posición de los últimos caracteres y la cantidad de separadores.
+    """
     if pd.isnull(val):
         return 0.0
     val_str = str(val).strip()
     
-    try:
-        # Si tiene formato estándar argentino (punto en miles, coma en centavos)
-        if ',' in val_str:
-            val_str = val_str.replace('.', '').replace(',', '.')
-        else:
-            # Si ya viene limpio o con formato americano
+    # Si contiene tanto punto como coma, analizamos cuál es el separador decimal real
+    if '.' in val_str and ',' in val_str:
+        pos_punto = val_str.rfind('.')
+        pos_coma = val_str.rfind(',')
+        
+        if pos_punto > pos_coma:
+            # Formato Americano (ej: 254,970.00) -> Eliminamos comas de miles
             val_str = val_str.replace(',', '')
+        else:
+            # Formato Regional (ej: 51.666,33) -> Eliminamos puntos de miles y cambiamos la coma decimal por punto
+            val_str = val_str.replace('.', '').replace(',', '.')
+            
+    # Si solo tiene comas (ej: 107452,21)
+    elif ',' in val_str and '.' not in val_str:
+        val_str = val_str.replace(',', '.')
+        
+    # Si solo tiene puntos pero actúa como decimal americano corto (ej: 254970.00)
+    elif '.' in val_str and ',' not in val_str:
+        # Si tiene más de un punto, son puntos de miles (ej: 1.250.000)
+        if val_str.count('.') > 1:
+            val_str = val_str.replace('.', '')
+        # Si tiene un solo punto pero está a 3 dígitos del final, evaluamos si es decimal o miles
+        elif val_str.count('.') == 1:
+            # Si el punto está seguido por exactamente 2 dígitos, es decimal
+            if len(val_str.split('.')[1]) != 2:
+                val_str = val_str.replace('.', '')
+
+    try:
         return float(val_str)
     except:
         return 0.0
@@ -214,7 +239,8 @@ if modulo == "0. Transcribir PDF de Visa a Excel":
                                 
                     for col in ws.columns:
                         max_len = max(len(str(cell.value or '')) for cell in col)
-                        ws.column_dimensions[get_column_letter(col[0].column)].width = max(max_len + 3, 12)
+                        col_letter = get_column_letter(col[0].column)
+                        ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
                         
                     wb.save(out_buffer)
                     st.download_button(
@@ -227,7 +253,7 @@ if modulo == "0. Transcribir PDF de Visa a Excel":
                 st.error(f"Error en la transcripción: {e}")
 
 # ==========================================
-# MÓDULO 1: LIMPIEZA DE VISA PARA ODOO (ARREGLADO)
+# MÓDULO 1: LIMPIEZA DE VISA PARA ODOO
 # ==========================================
 elif modulo == "1. Limpieza de Visa para Odoo":
     st.title("💳 Procesador de Resúmenes Visa para Odoo")
@@ -242,7 +268,7 @@ elif modulo == "1. Limpieza de Visa para Odoo":
                 
             df_filtered = df_raw.dropna(subset=['FECHA']).copy()
             
-            # Lógica corregida y blindada para importes regionales y americanos
+            # Mapeo blindado con el nuevo convertidor universal inteligente
             df_filtered['PESOS_NUM'] = df_filtered['PESOS'].apply(clean_money_value)
             df_filtered = df_filtered[df_filtered['PESOS_NUM'] != 0]
             
